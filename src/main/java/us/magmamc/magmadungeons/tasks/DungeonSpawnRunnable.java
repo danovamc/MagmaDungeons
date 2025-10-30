@@ -8,7 +8,7 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.Color;
+import org.bukkit.World;
 
 import us.magmamc.magmadungeons.Main;
 import us.magmamc.magmadungeons.managers.DungeonManager;
@@ -20,13 +20,14 @@ import org.bukkit.entity.TextDisplay;
 import org.bukkit.entity.Display;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.bukkit.potion.PotionEffect;
-
 import org.bukkit.Sound;
 import org.bukkit.Particle;
+import org.bukkit.Color;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -38,6 +39,9 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
     private final Random random = new Random();
     private static final long DESPAWN_DELAY_MS = 20000L;
     private static final double MIN_DISTANCE_SQ = 16.0 * 16.0;
+
+    private static final Attribute MAX_HEALTH_ATTRIBUTE = Attribute.valueOf("GENERIC_MAX_HEALTH");
+    private static final Attribute ATTACK_DAMAGE_ATTRIBUTE = Attribute.valueOf("GENERIC_ATTACK_DAMAGE");
 
     public DungeonSpawnRunnable(DungeonManager dungeonManager, Main plugin) {
         this.dungeonManager = dungeonManager;
@@ -138,14 +142,15 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
 
     private void applyAttributes(LivingEntity mob, DungeonPreset preset) {
         try {
-            if (mob.getAttribute(Attribute.valueOf("GENERIC_MAX_HEALTH")) != null) {
-                mob.getAttribute(Attribute.valueOf("GENERIC_MAX_HEALTH")).setBaseValue(preset.getBaseHealth());
+            // USO CORRECTO: mob.getAttribute(MAX_HEALTH_ATTRIBUTE)
+            if (mob.getAttribute(MAX_HEALTH_ATTRIBUTE) != null) {
+                mob.getAttribute(MAX_HEALTH_ATTRIBUTE).setBaseValue(preset.getBaseHealth());
             }
             mob.setHealth(preset.getBaseHealth());
 
-            if (mob.getAttribute(Attribute.valueOf("GENERIC_ATTACK_DAMAGE")) != null) {
-                double baseDamage = mob.getAttribute(Attribute.valueOf("GENERIC_ATTACK_DAMAGE")).getBaseValue();
-                mob.getAttribute(Attribute.valueOf("GENERIC_ATTACK_DAMAGE")).setBaseValue(
+            if (mob.getAttribute(ATTACK_DAMAGE_ATTRIBUTE) != null) {
+                double baseDamage = mob.getAttribute(ATTACK_DAMAGE_ATTRIBUTE).getBaseValue();
+                mob.getAttribute(ATTACK_DAMAGE_ATTRIBUTE).setBaseValue(
                         baseDamage * preset.getDamageModifier()
                 );
             }
@@ -232,34 +237,48 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
 
         Location min = dungeon.getMin();
         Location max = dungeon.getMax();
+        World world = dungeon.getWorld();
 
         // 1. Definir las restricciones de altura deseadas.
         final double SPAWN_Y_MIN = 123.0;
         final double SPAWN_Y_MAX = 135.0;
 
-        // 2. Calcular el rango efectivo de spawneo (la intersección de su región y la restricción).
+        // 2. Calcular el rango efectivo de spawneo.
         double effectiveMaxY = Math.min(max.getY(), SPAWN_Y_MAX);
         double effectiveMinY = Math.max(min.getY(), SPAWN_Y_MIN);
 
-        // Si no hay superposición, no se puede spawnear.
         if (effectiveMaxY < effectiveMinY) {
             return null;
         }
 
-        List<Player> playersInDungeon = dungeon.getWorld().getPlayers().stream()
+        Set<Player> playersInDungeon = world.getPlayers().stream()
                 .filter(p -> dungeon.isLocationInside(p.getLocation()))
-                .collect(Collectors.toList());
+                .collect(Collectors.toSet());
+
+        // >>> OPTIMIZACIÓN: Declarar objetos mutables fuera del bucle principal <<<
+        Location playerLocXZ = new Location(world, 0, 0, 0);
+        Location checkLoc = new Location(world, 0, 0, 0);
+        Location searchLoc = new Location(world, 0, 0, 0);
+        Location blockBelowLoc = new Location(world, 0, 0, 0);
+        Location blockAboveLoc = new Location(world, 0, 0, 0);
 
         for (int i = 0; i < 10; i++) {
             double x = min.getX() + random.nextDouble() * (max.getX() - min.getX());
             double z = min.getZ() + random.nextDouble() * (max.getZ() - min.getZ());
 
-            Location checkLoc = new Location(dungeon.getWorld(), x, 0, z);
+            // >>> CORRECCIÓN DE COMPILACIÓN: Setters secuenciales <<<
+            checkLoc.setX(x);
+            checkLoc.setY(0);
+            checkLoc.setZ(z);
 
             boolean tooClose = false;
             for (Player player : playersInDungeon) {
-                Location playerLocXZ = player.getLocation().clone();
+                Location currentPLoc = player.getLocation();
+
+                // >>> CORRECCIÓN DE COMPILACIÓN: Setters secuenciales <<<
+                playerLocXZ.setX(currentPLoc.getX());
                 playerLocXZ.setY(0);
+                playerLocXZ.setZ(currentPLoc.getZ());
 
                 if (playerLocXZ.distanceSquared(checkLoc) < MIN_DISTANCE_SQ) {
                     tooClose = true;
@@ -271,15 +290,28 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
                 continue;
             }
 
-            // 3. La búsqueda vertical comienza desde el máximo Y efectivo.
-            Location searchLoc = new Location(dungeon.getWorld(), x, effectiveMaxY, z);
+            // Inicializar la búsqueda vertical en el Y máximo efectivo.
+            // >>> CORRECCIÓN DE COMPILACIÓN: Setters secuenciales <<<
+            searchLoc.setX(x);
+            searchLoc.setY(effectiveMaxY);
+            searchLoc.setZ(z);
 
             // 4. La búsqueda vertical se detiene en el mínimo Y efectivo.
             while (searchLoc.getBlockY() >= effectiveMinY) {
-
+                // EVITAR CLONE: Usar objetos reutilizables para comprobar bloques
                 org.bukkit.block.Block currentBlock = searchLoc.getBlock();
-                org.bukkit.block.Block blockBelow = searchLoc.clone().subtract(0, 1, 0).getBlock();
-                org.bukkit.block.Block blockAbove = searchLoc.clone().add(0, 1, 0).getBlock();
+
+                // Setear posición del bloque inferior (Y-1)
+                blockBelowLoc.setX(searchLoc.getX());
+                blockBelowLoc.setY(searchLoc.getY() - 1);
+                blockBelowLoc.setZ(searchLoc.getZ());
+                org.bukkit.block.Block blockBelow = blockBelowLoc.getBlock();
+
+                // Setear posición del bloque superior (Y+1)
+                blockAboveLoc.setX(searchLoc.getX());
+                blockAboveLoc.setY(searchLoc.getY() + 1);
+                blockAboveLoc.setZ(searchLoc.getZ());
+                org.bukkit.block.Block blockAbove = blockAboveLoc.getBlock();
 
                 boolean blockBelowIsForbidden = blacklist.contains(blockBelow.getType().name());
 
@@ -288,7 +320,8 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
                         blockBelow.getType().isSolid() &&
                         !blockBelowIsForbidden) {
 
-                    return searchLoc.add(0.5, 0, 0.5);
+                    // Se devuelve una nueva Location solo en caso de éxito.
+                    return searchLoc.clone().add(0.5, 0, 0.5);
                 }
 
                 searchLoc.subtract(0, 1, 0);

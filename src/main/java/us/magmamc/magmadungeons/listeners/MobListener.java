@@ -34,7 +34,7 @@ public class MobListener implements Listener {
     private final Main plugin = Main.getInstance();
     private final Random random = new Random();
     private final MiniMessage mm = Main.getInstance().getMiniMessage();
-
+    private static final Attribute MAX_HEALTH_ATTRIBUTE = Attribute.valueOf("GENERIC_MAX_HEALTH");
     public MobListener(DungeonManager dungeonManager) {
         this.dungeonManager = dungeonManager;
 
@@ -74,9 +74,9 @@ public class MobListener implements Listener {
             if (preset != null) {
                 double currentHealth = Math.max(0, livingMob.getHealth());
 
-                Attribute maxHealthAttribute = Attribute.valueOf("GENERIC_MAX_HEALTH");
-                double maxHealth = livingMob.getAttribute(maxHealthAttribute) != null
-                        ? livingMob.getAttribute(maxHealthAttribute).getBaseValue()
+                // Usando la constante estática
+                double maxHealth = livingMob.getAttribute(MAX_HEALTH_ATTRIBUTE) != null
+                        ? livingMob.getAttribute(MAX_HEALTH_ATTRIBUTE).getBaseValue()
                         : livingMob.getMaxHealth();
 
                 // MODIFICACIÓN: Uso de MiniMessage
@@ -145,10 +145,8 @@ public class MobListener implements Listener {
         String nameLineRaw = preset.getName();
         double damage = event.getFinalDamage();
         double currentHealth = mob.getHealth();
-
-        Attribute maxHealthAttribute = Attribute.valueOf("GENERIC_MAX_HEALTH");
-        double maxHealth = mob.getAttribute(maxHealthAttribute) != null
-                ? mob.getAttribute(maxHealthAttribute).getBaseValue()
+        double maxHealth = mob.getAttribute(MAX_HEALTH_ATTRIBUTE) != null
+                ? mob.getAttribute(MAX_HEALTH_ATTRIBUTE).getBaseValue()
                 : mob.getMaxHealth();
 
         double newHealth = Math.max(0, currentHealth - damage);
