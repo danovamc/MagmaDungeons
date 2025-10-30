@@ -9,7 +9,7 @@ import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.World;
-
+import org.bukkit.util.Vector;
 import us.magmamc.magmadungeons.Main;
 import us.magmamc.magmadungeons.managers.DungeonManager;
 import us.magmamc.magmadungeons.models.DungeonInstance;
@@ -40,6 +40,9 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
     private static final long DESPAWN_DELAY_MS = 20000L;
     private static final double MIN_DISTANCE_SQ = 16.0 * 16.0;
 
+    // Constantes de centrado y atributos cacheados
+    private static final double MAX_DISTANCE_THRESHOLD = 25.0;
+    private static final double CENTERING_FORCE = 0.5;
     private static final Attribute MAX_HEALTH_ATTRIBUTE = Attribute.valueOf("GENERIC_MAX_HEALTH");
     private static final Attribute ATTACK_DAMAGE_ATTRIBUTE = Attribute.valueOf("GENERIC_ATTACK_DAMAGE");
 
@@ -53,6 +56,8 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
         long currentTime = System.currentTimeMillis();
         Map<UUID, Long> exitTimes = dungeonManager.getLastPlayerExitTime();
 
+        final org.bukkit.scheduler.BukkitScheduler scheduler = plugin.getServer().getScheduler();
+
         for (DungeonInstance dungeon : dungeonManager.getActiveDungeons()) {
             DungeonPreset preset = dungeonManager.getPresetManager().getPreset(dungeon.getPresetId());
 
@@ -60,20 +65,44 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
 
             boolean playerPresent = isPlayerPresent(dungeon);
 
-            final UUID dungeonId = dungeon.getId(); // Variable hecha final para la lambda
+            final UUID dungeonId = dungeon.getId();
 
             if (playerPresent) {
                 exitTimes.remove(dungeonId);
 
-                if (countMobsInArea(dungeon) < preset.getMaxMobsInRange()) {
-                    final Location spawnLoc = getSafeSpawnLocation(dungeon);
+                // Chequeo de centrado (SYNC)
+                scheduler.runTask(plugin, () -> {
+                    checkAndCenterMobs(dungeon);
+                });
 
-                    if (spawnLoc != null) {
-                        plugin.getServer().getScheduler().runTask(plugin, () -> {
-                            spawnCustomMobSynchronous(dungeon, preset, spawnLoc);
-                        });
+                // >>> LÓGICA DE CONTROL DE CAPACIDAD ESTRICTO (SYNC) <<<
+                scheduler.runTask(plugin, () -> {
+                    List<LivingEntity> activeMobs = getActiveDungeonMobs(dungeon);
+                    int maxMobs = preset.getMaxMobsInRange();
+                    int excessMobs = activeMobs.size() - maxMobs;
+
+                    // 1. Eliminar mobs excedentes
+                    if (excessMobs > 0) {
+                        for (int i = 0; i < excessMobs; i++) {
+                            LivingEntity mobToRemove = activeMobs.get(i);
+                            if (dungeonManager.getMobHealthDisplays().containsKey(mobToRemove.getUniqueId())) {
+                                dungeonManager.getMobHealthDisplays().remove(mobToRemove.getUniqueId()).remove();
+                            }
+                            mobToRemove.remove();
+                            plugin.getLogger().warning("Eliminado mob excedente en dungeon " + dungeonId.toString().substring(0, 8) + " para mantener el límite de " + maxMobs + ".");
+                        }
                     }
-                }
+
+                    // 2. Spawnear un nuevo mob si hay espacio
+                    if (activeMobs.size() <= maxMobs) {
+                        final Location spawnLoc = getSafeSpawnLocation(dungeon);
+                        if (spawnLoc != null) {
+                            spawnCustomMobSynchronous(dungeon, preset, spawnLoc);
+                        }
+                    }
+                });
+                // <<< FIN LÓGICA DE CONTROL DE CAPACIDAD ESTRICTO >>>
+
             } else {
                 if (!exitTimes.containsKey(dungeonId)) {
                     exitTimes.put(dungeonId, currentTime);
@@ -81,7 +110,7 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
                     long exitTime = exitTimes.get(dungeonId);
 
                     if (currentTime >= exitTime + DESPAWN_DELAY_MS) {
-                        plugin.getServer().getScheduler().runTask(plugin, () -> {
+                        scheduler.runTask(plugin, () -> {
                             int count = dungeonManager.cleanMobs(dungeonId.toString());
                             if (count > 0) {
                                 plugin.getLogger().info(String.format("Limpiados %d mobs de dungeon %s por falta de jugadores (Tiempo agotado).", count, dungeonId.toString().substring(0, 8)));
@@ -94,6 +123,175 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
         }
     }
 
+
+    private Location getSafeSpawnLocation(DungeonInstance dungeon) {
+        DungeonPreset preset = dungeonManager.getPresetManager().getPreset(dungeon.getPresetId());
+        if (preset == null) return null;
+        List<String> blacklist = preset.getBlockBlacklist();
+
+        Location minLoc = dungeon.getMin();
+        Location maxLoc = dungeon.getMax();
+        World world = dungeon.getWorld();
+
+        // LÍMITES DE ALTURA Y DISTRIBUCIÓN
+        final double SPAWN_Y_MIN = 123.0;
+        final double SPAWN_Y_MAX = 135.0;
+        final double SPAWN_RADIUS = 25.0;
+
+        double effectiveMaxY = Math.min(maxLoc.getY(), SPAWN_Y_MAX);
+        double effectiveMinY = Math.max(minLoc.getY(), SPAWN_Y_MIN);
+
+        if (effectiveMaxY < effectiveMinY) {
+            return null;
+        }
+
+        // Calcular el centro XZ para la distribución polar
+        double centerX = (minLoc.getX() + maxLoc.getX()) / 2.0;
+        double centerZ = (minLoc.getZ() + maxLoc.getZ()) / 2.0;
+
+
+        Set<Player> playersInDungeon = world.getPlayers().stream()
+                .filter(p -> dungeon.isLocationInside(p.getLocation()))
+                .collect(Collectors.toSet());
+
+        // OPTIMIZACIÓN: Reutilizar objetos mutables
+        Location playerLocXZ = new Location(world, 0, 0, 0);
+        Location checkLoc = new Location(world, 0, 0, 0);
+        Location searchLoc = new Location(world, 0, 0, 0);
+        Location blockBelowLoc = new Location(world, 0, 0, 0);
+        Location blockAboveLoc = new Location(world, 0, 0, 0);
+
+        for (int i = 0; i < 10; i++) {
+            // LÓGICA DE DISTRIBUCIÓN UNIFORME EN EL CÍRCULO (POLAR)
+            double angle = 2 * Math.PI * random.nextDouble();
+            double radius = SPAWN_RADIUS * Math.sqrt(random.nextDouble());
+
+            double x = centerX + radius * Math.cos(angle);
+            double z = centerZ + radius * Math.sin(angle);
+
+            checkLoc.setX(x);
+            checkLoc.setY(0);
+            checkLoc.setZ(z);
+
+            boolean tooClose = false;
+            for (Player player : playersInDungeon) {
+                Location currentPLoc = player.getLocation();
+
+                playerLocXZ.setX(currentPLoc.getX());
+                playerLocXZ.setY(0);
+                playerLocXZ.setZ(currentPLoc.getZ());
+
+                if (playerLocXZ.distanceSquared(checkLoc) < MIN_DISTANCE_SQ) {
+                    tooClose = true;
+                    break;
+                }
+            }
+
+            if (tooClose) {
+                continue;
+            }
+
+            // Inicia la búsqueda desde el Y más alto.
+            double startY = Math.floor(effectiveMaxY);
+
+            searchLoc.setX(x);
+            searchLoc.setY(startY);
+            searchLoc.setZ(z);
+
+            // La Y mínima sigue siendo el límite inferior.
+            while (searchLoc.getBlockY() >= effectiveMinY) {
+
+                org.bukkit.block.Block currentBlock = searchLoc.getBlock();
+
+                blockBelowLoc.setX(searchLoc.getX());
+                blockBelowLoc.setY(searchLoc.getY() - 1);
+                blockBelowLoc.setZ(searchLoc.getZ());
+                org.bukkit.block.Block blockBelow = blockBelowLoc.getBlock();
+
+                blockAboveLoc.setX(searchLoc.getX());
+                blockAboveLoc.setY(searchLoc.getY() + 1);
+                blockAboveLoc.setZ(searchLoc.getZ());
+                org.bukkit.block.Block blockAbove = blockAboveLoc.getBlock();
+
+                boolean blockBelowIsForbidden = blacklist.contains(blockBelow.getType().name());
+
+                if (!currentBlock.getType().isSolid() &&
+                        !blockAbove.getType().isSolid() &&
+                        blockBelow.getType().isSolid() &&
+                        !blockBelowIsForbidden) {
+
+                    return searchLoc.clone().add(0.5, 0, 0.5);
+                }
+
+                searchLoc.subtract(0, 1, 0);
+            }
+        }
+
+        return null;
+    }
+
+
+    private List<LivingEntity> getActiveDungeonMobs(DungeonInstance dungeon) {
+        NamespacedKey dungeonIdKey = dungeonManager.getDungeonIdKey();
+
+        return dungeon.getWorld().getEntities().stream()
+                // 1. Asegurar que es una LivingEntity (un mob real)
+                .filter(entity -> entity instanceof LivingEntity)
+                .map(entity -> (LivingEntity) entity)
+                // 2. Asegurar que el mob está vivo y es válido
+                .filter(mob -> mob.isValid() && !mob.isDead())
+                // 3. Comprobar si tiene el PDC (tag de dungeon)
+                .filter(mob -> mob.getPersistentDataContainer().has(dungeonIdKey, PersistentDataType.STRING))
+                .filter(mob -> {
+                    String id = mob.getPersistentDataContainer().get(dungeonIdKey, PersistentDataType.STRING);
+                    // 4. Comprobar que la ID y la ubicación coincidan
+                    return id.equals(dungeon.getId().toString()) && dungeon.isLocationInside(mob.getLocation());
+                })
+                // Recolectar la lista
+                .collect(Collectors.toList());
+    }
+
+    private void checkAndCenterMobs(DungeonInstance dungeon) {
+        NamespacedKey dungeonIdKey = dungeonManager.getDungeonIdKey();
+
+        // Cálculo manual del centro
+        Location minLoc = dungeon.getMin();
+        Location maxLoc = dungeon.getMax();
+
+        double centerX = (minLoc.getX() + maxLoc.getX()) / 2.0;
+        double centerY = (minLoc.getY() + maxLoc.getY()) / 2.0;
+        double centerZ = (minLoc.getZ() + maxLoc.getZ()) / 2.0;
+
+        Location center = new Location(dungeon.getWorld(), centerX, centerY, centerZ);
+
+        // Iterar sobre todas las entidades de la dungeon
+        dungeon.getWorld().getEntities().stream()
+                .filter(entity -> entity instanceof LivingEntity)
+                .map(entity -> (LivingEntity) entity)
+                .filter(mob -> {
+                    String id = mob.getPersistentDataContainer().get(dungeonIdKey, PersistentDataType.STRING);
+                    return mob.isValid() && !mob.isDead() && dungeon.getId().toString().equals(id);
+                })
+                .forEach(mob -> {
+                    Location mobLoc = mob.getLocation();
+
+                    Location mobLocXZ = mobLoc.clone();
+                    mobLocXZ.setY(center.getY());
+
+                    double distance = mobLocXZ.distance(center);
+
+                    if (distance > MAX_DISTANCE_THRESHOLD) {
+
+                        Vector centerVector = center.toVector();
+                        Vector mobVector = mobLocXZ.toVector();
+
+                        Vector direction = centerVector.clone().subtract(mobVector).normalize();
+
+                        mob.setVelocity(mob.getVelocity().add(direction.multiply(CENTERING_FORCE)));
+                    }
+                });
+    }
+
     private boolean isPlayerPresent(DungeonInstance dungeon) {
         for (Player player : dungeon.getWorld().getPlayers()) {
             if (dungeon.isLocationInside(player.getLocation())) {
@@ -104,15 +302,9 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
     }
 
     private long countMobsInArea(DungeonInstance dungeon) {
-        NamespacedKey dungeonIdKey = dungeonManager.getDungeonIdKey();
-        return dungeon.getWorld().getEntities().stream()
-                .filter(entity -> entity.getPersistentDataContainer().has(dungeonIdKey, PersistentDataType.STRING))
-                .filter(entity -> {
-                    String id = entity.getPersistentDataContainer().get(dungeonIdKey, PersistentDataType.STRING);
-                    return id.equals(dungeon.getId().toString()) && dungeon.isLocationInside(entity.getLocation());
-                })
-                .count();
+        return getActiveDungeonMobs(dungeon).size();
     }
+
 
     private void spawnCustomMobSynchronous(DungeonInstance dungeon, DungeonPreset preset, Location spawnLoc) {
 
@@ -130,7 +322,6 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
         applyEquipment(mob, preset);
         applyEffects(mob, preset);
 
-        // LLAMADA A LAS ACCIONES DE SPAWNEO: se añade 0.5 a X, Y, Z para centrar los efectos en el bloque
         executeSpawnActions(spawnLoc.clone().add(0.5, 0.5, 0.5), preset);
 
         TextDisplay healthDisplay = createHealthDisplay(mob, preset);
@@ -142,7 +333,6 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
 
     private void applyAttributes(LivingEntity mob, DungeonPreset preset) {
         try {
-            // USO CORRECTO: mob.getAttribute(MAX_HEALTH_ATTRIBUTE)
             if (mob.getAttribute(MAX_HEALTH_ATTRIBUTE) != null) {
                 mob.getAttribute(MAX_HEALTH_ATTRIBUTE).setBaseValue(preset.getBaseHealth());
             }
@@ -230,107 +420,6 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
         return healthDisplay;
     }
 
-    private Location getSafeSpawnLocation(DungeonInstance dungeon) {
-        DungeonPreset preset = dungeonManager.getPresetManager().getPreset(dungeon.getPresetId());
-        if (preset == null) return null;
-        List<String> blacklist = preset.getBlockBlacklist();
-
-        Location min = dungeon.getMin();
-        Location max = dungeon.getMax();
-        World world = dungeon.getWorld();
-
-        // 1. Definir las restricciones de altura deseadas.
-        final double SPAWN_Y_MIN = 123.0;
-        final double SPAWN_Y_MAX = 135.0;
-
-        // 2. Calcular el rango efectivo de spawneo.
-        double effectiveMaxY = Math.min(max.getY(), SPAWN_Y_MAX);
-        double effectiveMinY = Math.max(min.getY(), SPAWN_Y_MIN);
-
-        if (effectiveMaxY < effectiveMinY) {
-            return null;
-        }
-
-        Set<Player> playersInDungeon = world.getPlayers().stream()
-                .filter(p -> dungeon.isLocationInside(p.getLocation()))
-                .collect(Collectors.toSet());
-
-        // >>> OPTIMIZACIÓN: Declarar objetos mutables fuera del bucle principal <<<
-        Location playerLocXZ = new Location(world, 0, 0, 0);
-        Location checkLoc = new Location(world, 0, 0, 0);
-        Location searchLoc = new Location(world, 0, 0, 0);
-        Location blockBelowLoc = new Location(world, 0, 0, 0);
-        Location blockAboveLoc = new Location(world, 0, 0, 0);
-
-        for (int i = 0; i < 10; i++) {
-            double x = min.getX() + random.nextDouble() * (max.getX() - min.getX());
-            double z = min.getZ() + random.nextDouble() * (max.getZ() - min.getZ());
-
-            // >>> CORRECCIÓN DE COMPILACIÓN: Setters secuenciales <<<
-            checkLoc.setX(x);
-            checkLoc.setY(0);
-            checkLoc.setZ(z);
-
-            boolean tooClose = false;
-            for (Player player : playersInDungeon) {
-                Location currentPLoc = player.getLocation();
-
-                // >>> CORRECCIÓN DE COMPILACIÓN: Setters secuenciales <<<
-                playerLocXZ.setX(currentPLoc.getX());
-                playerLocXZ.setY(0);
-                playerLocXZ.setZ(currentPLoc.getZ());
-
-                if (playerLocXZ.distanceSquared(checkLoc) < MIN_DISTANCE_SQ) {
-                    tooClose = true;
-                    break;
-                }
-            }
-
-            if (tooClose) {
-                continue;
-            }
-
-            // Inicializar la búsqueda vertical en el Y máximo efectivo.
-            // >>> CORRECCIÓN DE COMPILACIÓN: Setters secuenciales <<<
-            searchLoc.setX(x);
-            searchLoc.setY(effectiveMaxY);
-            searchLoc.setZ(z);
-
-            // 4. La búsqueda vertical se detiene en el mínimo Y efectivo.
-            while (searchLoc.getBlockY() >= effectiveMinY) {
-                // EVITAR CLONE: Usar objetos reutilizables para comprobar bloques
-                org.bukkit.block.Block currentBlock = searchLoc.getBlock();
-
-                // Setear posición del bloque inferior (Y-1)
-                blockBelowLoc.setX(searchLoc.getX());
-                blockBelowLoc.setY(searchLoc.getY() - 1);
-                blockBelowLoc.setZ(searchLoc.getZ());
-                org.bukkit.block.Block blockBelow = blockBelowLoc.getBlock();
-
-                // Setear posición del bloque superior (Y+1)
-                blockAboveLoc.setX(searchLoc.getX());
-                blockAboveLoc.setY(searchLoc.getY() + 1);
-                blockAboveLoc.setZ(searchLoc.getZ());
-                org.bukkit.block.Block blockAbove = blockAboveLoc.getBlock();
-
-                boolean blockBelowIsForbidden = blacklist.contains(blockBelow.getType().name());
-
-                if (!currentBlock.getType().isSolid() &&
-                        !blockAbove.getType().isSolid() &&
-                        blockBelow.getType().isSolid() &&
-                        !blockBelowIsForbidden) {
-
-                    // Se devuelve una nueva Location solo en caso de éxito.
-                    return searchLoc.clone().add(0.5, 0, 0.5);
-                }
-
-                searchLoc.subtract(0, 1, 0);
-            }
-        }
-
-        return null;
-    }
-
     private void executeSpawnActions(Location loc, DungeonPreset preset) {
         for (String action : preset.getSpawnActions()) {
             if (action == null || action.isEmpty()) continue;
@@ -343,7 +432,6 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
             try {
                 switch (actionType) {
                     case "[SOUND]":
-                        // Formato esperado: [SOUND];SOUND_NAME;VOLUME;PITCH
                         if (parts.length >= 2) {
                             String soundName = parts[1];
 
@@ -363,7 +451,6 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
                         break;
 
                     case "[PARTICLE]":
-                        // Formato: [PARTICLE];PARTICLE_NAME;COUNT;OFFSET_X,OFFSET_Y,OFFSET_Z;SPEED
                         if (parts.length >= 3) {
                             String particleName = parts[1];
                             int count = Integer.parseInt(parts[2].trim());
@@ -388,11 +475,8 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
                                 speed = Double.parseDouble(parts[4].trim());
                             }
 
-                            // >>> LÓGICA CORREGIDA PARA PARTÍCULAS DE COLOR (DUST) <<<
                             if (particle == Particle.DUST) {
 
-                                // Corrección 1: Usar Color.fromRGB.
-                                // Corrección 2: Se usa DUST, por lo que los offsets son R, G, B y speed es el tamaño.
                                 Color color = Color.fromRGB(
                                         (int) (offsetX * 255.0),
                                         (int) (offsetY * 255.0),
@@ -412,7 +496,6 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
                                 );
 
                             } else {
-                                // Para partículas normales (CRIT, EXPLOSION, etc.)
                                 loc.getWorld().spawnParticle(
                                         particle,
                                         loc.getX(), loc.getY(), loc.getZ(),
@@ -421,7 +504,6 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
                                         speed
                                 );
                             }
-                            // >>> FIN LÓGICA CORREGIDA <<<
                         }
                         break;
 

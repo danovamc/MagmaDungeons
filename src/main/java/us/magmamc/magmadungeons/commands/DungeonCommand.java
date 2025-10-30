@@ -17,6 +17,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import us.magmamc.magmadungeons.Main;
 import us.magmamc.magmadungeons.managers.DungeonManager;
+import us.magmamc.magmadungeons.guis.PresetSelectionGUI; // Importación necesaria
 
 public class DungeonCommand implements CommandExecutor, TabCompleter {
     private final DungeonManager dungeonManager;
@@ -42,11 +43,29 @@ public class DungeonCommand implements CommandExecutor, TabCompleter {
         } else if (!player.hasPermission("magmadungeons.admin")) {
             this.sendError(player, "No tienes permiso para usar este comando.");
             return true;
-        } else if (args.length != 0 && !args[0].equalsIgnoreCase("help")) {
+        }
+
+        // Check if arguments are present and not "help"
+        if (args.length != 0 && !args[0].equalsIgnoreCase("help")) {
             switch (args[0].toLowerCase()) {
                 case "setup":
-                    this.handleSetupCommand(player, args);
-                    break;
+                    // >>> LÓGICA DE SETUP MODIFICADA <<<
+                    if (args.length > 1) {
+                        this.sendError(player, "Uso: /md setup (abre el selector de presets)");
+                        return true;
+                    }
+
+                    if (this.dungeonManager.isInSetupMode(player)) {
+                        this.sendError(player, "Ya estás en modo setup. Usa el <red>Ítem Salir</red> en tu hotbar.");
+                        return true;
+                    }
+
+                    // Abre el GUI de selección de presets
+                    PresetSelectionGUI.open(player, this.dungeonManager);
+                    this.sendMessage(player, "Abriendo selector de presets...");
+                    return true;
+                // <<< FIN LÓGICA DE SETUP MODIFICADA >>>
+
                 case "edit":
                     this.handleEditCommand(player, args);
                     break;
@@ -87,37 +106,7 @@ public class DungeonCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    private void handleSetupCommand(Player player, String[] args) {
-        if (args.length < 2) {
-            this.sendError(player, "Uso: /md setup <preset_id>");
-        } else {
-            String presetId = args[1].toLowerCase();
-            if (!this.dungeonManager.getPresetManager().presetExists(presetId)) {
-                this.sendError(player, "El preset '" + presetId + "' no existe. Crea el archivo YAML primero.");
-            } else {
-                ItemStack setupAxe = new ItemStack(Material.GOLDEN_AXE);
-                ItemMeta meta = setupAxe.getItemMeta();
-                String mobTypeString = this.dungeonManager.getPresetManager().getPreset(presetId).getMobType().name();
-                if (meta != null) {
-                    meta.displayName(this.mm.deserialize("<!i><aqua><bold>Herramienta de Selección de Dungeon"));
-                    meta.lore(Arrays.asList(
-                            this.mm.deserialize("<!i><gray>Modo: <yellow>" + mobTypeString),
-                            this.mm.deserialize("<!i><gray>Preset: <yellow>" + presetId),
-                            Component.empty(),
-                            this.mm.deserialize("<!i><green>Clic Izquierdo: Punto 1"),
-                            this.mm.deserialize("<!i><green>Clic Derecho: Punto 2 (Finalizar)")
-                    ));
-                    setupAxe.setItemMeta(meta);
-                }
-
-                this.dungeonManager.startSetupMode(player, mobTypeString, presetId);
-                player.getInventory().addItem(new ItemStack[]{setupAxe});
-                this.sendMessage(player, "¡Has iniciado el modo de configuración!");
-                this.sendMessage(player, "Se te ha dado la <aqua>Herramienta de Selección de Dungeon</aqua><yellow>.");
-                this.sendMessage(player, "Selecciona la primera esquina con un clic izquierdo.");
-            }
-        }
-    }
+    // ELIMINADO: handleSetupCommand (Función reemplazada por PresetSelectionGUI)
 
     private void handleEditCommand(Player player, String[] args) {
         if (args.length < 2) {
@@ -154,7 +143,8 @@ public class DungeonCommand implements CommandExecutor, TabCompleter {
 
     private void sendHelp(Player player) {
         Main.getInstance().getAudiences().player(player).sendMessage(this.mm.deserialize("<gray>--- <gold>MagmaDungeons Help<gray> ---"));
-        Main.getInstance().getAudiences().player(player).sendMessage(this.mm.deserialize("<yellow>/md setup <preset_id><gray> - Inicia el modo de selección de zona."));
+        // Modificación de la descripción de /md setup
+        Main.getInstance().getAudiences().player(player).sendMessage(this.mm.deserialize("<yellow>/md setup<gray> - Abre la GUI para seleccionar la zona de dungeon."));
         Main.getInstance().getAudiences().player(player).sendMessage(this.mm.deserialize("<yellow>/md remove <id><gray> - Elimina una dungeon por su ID."));
         Main.getInstance().getAudiences().player(player).sendMessage(this.mm.deserialize("<yellow>/md clear <id/ALL><gray> - Limpia mobs de una zona o todas."));
         Main.getInstance().getAudiences().player(player).sendMessage(this.mm.deserialize("<yellow>/md edit <preset_id><gray> - Abre la GUI para editar equipo y stats."));
@@ -166,7 +156,8 @@ public class DungeonCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             completions.addAll(Arrays.asList("setup", "edit", "reload", "clear", "remove"));
         } else if (args.length == 2 && args[0].equalsIgnoreCase("setup")) {
-            completions.addAll(this.dungeonManager.getPresetManager().getAvailablePresets());
+            // Ya no sugerimos presets en /md setup, pues usa una GUI.
+            return completions;
         } else if (args.length == 2 && args[0].equalsIgnoreCase("edit")) {
             completions.addAll(this.dungeonManager.getPresetManager().getAvailablePresets());
         } else if (args.length == 2 && args[0].equalsIgnoreCase("clear")) {

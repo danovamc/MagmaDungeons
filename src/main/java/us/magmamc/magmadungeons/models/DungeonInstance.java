@@ -61,4 +61,12 @@ public class DungeonInstance {
     public Location getMax() {
         return new Location(this.world, this.maxX, this.maxY, this.maxZ);
     }
+
+    public Location getCenter() {
+        double centerX = (this.minX + this.maxX) / 2.0;
+        double centerY = (this.minY + this.maxY) / 2.0;
+        double centerZ = (this.minZ + this.maxZ) / 2.0;
+        // Retorna la ubicación central
+        return new Location(this.world, centerX, centerY, centerZ);
+    }
 }

@@ -1,0 +1,7 @@
+general:
+  # Frecuencia con la que el plugin intentará spawnear un mob (en ticks).
+  # 20 ticks = 1 segundo. 100 ticks = 5 segundos.
+  spawn-delay-ticks: 100
+
+  # Opciones disponibles: KILL (Mata al mob) o PUSH (Lo empuja de vuelta al centro)
+  action-mob-safe-zone: PUSH

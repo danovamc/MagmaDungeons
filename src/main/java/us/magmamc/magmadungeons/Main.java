@@ -14,6 +14,8 @@ import us.magmamc.magmadungeons.managers.DungeonManager;
 import us.magmamc.magmadungeons.managers.PresetManager;
 import us.magmamc.magmadungeons.tasks.DungeonSpawnRunnable;
 import us.magmamc.magmadungeons.tasks.SetupVisualizerRunnable;
+// >>> CORRECCIÓN: CAMBIAR EL PAQUETE DE GUIS A LISTENERS <<<
+import us.magmamc.magmadungeons.listeners.SetupGUIListener;
 
 public class Main extends JavaPlugin {
     private static Main instance;
@@ -24,8 +26,14 @@ public class Main extends JavaPlugin {
     private BukkitAudiences audiences;
     private BukkitTask spawnTask;
 
+    private static final String SPAWN_DELAY_KEY = "general.spawn-delay-ticks";
+    private static final String SAFETY_ACTION_KEY = "general.action-mob-safe-zone";
+
     public void onEnable() {
         instance = this;
+
+        this.saveDefaultConfig();
+
         this.getLogger().info("MagmaDungeons ha iniciado el proceso de carga.");
         this.configManager = new ConfigManager(this);
         this.presetManager = new PresetManager(this, this.configManager);
@@ -34,6 +42,7 @@ public class Main extends JavaPlugin {
         this.registerCommands();
         this.registerEvents();
         this.audiences = BukkitAudiences.create(this);
+        long spawnDelay = getConfig().getLong(SPAWN_DELAY_KEY, 100L);
         this.spawnTask = Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
             try {
                 (new DungeonSpawnRunnable(this.dungeonManager, this)).run();
@@ -42,7 +51,8 @@ public class Main extends JavaPlugin {
                 e.printStackTrace();
             }
 
-        }, 0L, 200L);
+        }, 0L, spawnDelay); // Usar la variable leída
+
         (new SetupVisualizerRunnable(this.dungeonManager)).runTaskTimer(this, 5L, 5L);
         this.getLogger().info("MagmaDungeons ha cargado con éxito.");
     }
@@ -74,6 +84,8 @@ public class Main extends JavaPlugin {
         this.getServer().getPluginManager().registerEvents(new SetupListener(this.dungeonManager), this);
         this.getServer().getPluginManager().registerEvents(new MobListener(this.dungeonManager), this);
         this.getServer().getPluginManager().registerEvents(this.editPresetGUI, this);
+        // La línea que causaba el error ahora es correcta si SetupGUIListener está en listeners
+        this.getServer().getPluginManager().registerEvents(new SetupGUIListener(this.dungeonManager), this);
     }
 
     public static Main getInstance() {
@@ -102,5 +114,9 @@ public class Main extends JavaPlugin {
 
     public MiniMessage getMiniMessage() {
         return MiniMessage.miniMessage();
+    }
+
+    public String getSafetyAction() {
+        return getConfig().getString(SAFETY_ACTION_KEY, "PUSH").toUpperCase();
     }
 }

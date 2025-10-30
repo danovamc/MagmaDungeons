@@ -18,6 +18,7 @@ import us.magmamc.magmadungeons.managers.DungeonManager;
 import us.magmamc.magmadungeons.models.DungeonInstance;
 import us.magmamc.magmadungeons.models.DungeonPreset;
 
+import org.bukkit.util.Vector;
 import org.bukkit.NamespacedKey;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
@@ -99,6 +100,8 @@ public class MobListener implements Listener {
     }
 
     private void checkMobContainment() {
+        // Obtenemos la acción deseada (KILL o PUSH) una sola vez
+        String safetyAction = plugin.getSafetyAction();
         dungeonManager.getMobHealthDisplays().keySet().removeIf(mobUUID -> {
             TextDisplay display = dungeonManager.getMobHealthDisplays().get(mobUUID);
             Entity mob = Bukkit.getEntity(mobUUID);
@@ -120,10 +123,34 @@ public class MobListener implements Listener {
             }
 
             if (mob.getLocation().getBlock().getType() == Material.STRUCTURE_VOID) {
-                mob.remove();
-                mob.getWorld().strikeLightningEffect(mob.getLocation());
-                display.remove();
-                return true;
+
+                if ("PUSH".equals(safetyAction)) {
+                    // Acción: PUSH (Empujar hacia el centro)
+
+                    Location center = dungeon.getCenter();
+
+                    // Usamos la fuerza de centrado que definimos antes
+                    final double CENTERING_FORCE = 1.5; // Aumentamos la fuerza para que el empuje sea notorio y saque al mob
+
+                    Vector centerVector = center.toVector();
+                    Vector mobVector = mob.getLocation().toVector();
+
+                    // Calcular el vector de empuje (Mob -> Centro)
+                    Vector direction = centerVector.clone().subtract(mobVector).normalize().multiply(CENTERING_FORCE);
+
+                    // Aplicar la fuerza
+                    mob.setVelocity(direction);
+
+                    // Retorna false: no remover el mob ni el display de las listas.
+                    return false;
+
+                } else {
+                    // Acción: KILL (Comportamiento original)
+                    mob.remove();
+                    mob.getWorld().strikeLightningEffect(mob.getLocation());
+                    display.remove();
+                    return true; // Remover de la lista de displays
+                }
             }
 
             return false;
@@ -181,14 +208,18 @@ public class MobListener implements Listener {
 
         DungeonPreset preset = getPresetFromMob(mob);
 
-        Player killer = mob.getKiller();
+        Player killer = event.getEntity().getKiller(); // Consistencia en la obtención del killer
         Location deathLoc = mob.getLocation();
 
         if (preset != null) {
+            // >>> OPTIMIZACIÓN 1: Calcular el nombre del asesino una sola vez <<<
+            final String playerName = killer != null ? killer.getName() : "console_killer";
+
+            // 1. Recompensas de Comandos
             preset.getCommandRewards().forEach(reward -> {
                 if (random.nextInt(100) < reward.percentage) {
-                    String playerName = killer != null ? killer.getName() : "console_killer";
-                    String command = reward.value.replace("%player%", playerName);
+                    // La formación de la cadena se hace DENTRO del chequeo de probabilidad
+                    final String command = reward.value.replace("%player%", playerName);
 
                     Bukkit.getScheduler().runTask(Main.getInstance(), () -> {
                         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
@@ -196,11 +227,14 @@ public class MobListener implements Listener {
                 }
             });
 
+            // 2. Recompensas de Items
             preset.getItemRewards().forEach(reward -> {
                 if (random.nextInt(100) < reward.percentage) {
                     String[] parts = reward.value.trim().split(" ");
                     try {
+                        // OPTIMIZACIÓN 2: Usar .toUpperCase() solo en la parte necesaria
                         Material material = Material.valueOf(parts[0].toUpperCase());
+                        // Uso eficiente de operadores ternarios
                         int amount = (parts.length > 1) ? Integer.parseInt(parts[1]) : 1;
                         deathLoc.getWorld().dropItemNaturally(deathLoc, new ItemStack(material, amount));
                     }
@@ -210,20 +244,23 @@ public class MobListener implements Listener {
                 }
             });
 
+            // 3. Recompensas de XP
             preset.getXpRewards().forEach(reward -> {
                 if (random.nextInt(100) < reward.percentage) {
-                    String value = reward.value.toUpperCase();
+                    // OPTIMIZACIÓN 3: Convertir a mayúsculas una sola vez y usar trim()
+                    String rawValue = reward.value.trim().toUpperCase();
 
-                    if (value.endsWith("L")) {
+                    if (rawValue.endsWith("L")) {
                         try {
-                            int levels = Integer.parseInt(value.replace("L", "").trim());
+                            // Usamos rawValue.replace("L", "") para obtener el nivel numérico
+                            int levels = Integer.parseInt(rawValue.replace("L", ""));
                             if (killer != null) killer.giveExpLevels(levels);
                         } catch (NumberFormatException e) {
                             Main.getInstance().getLogger().warning("Valor Nivel XP inválido: " + reward.value);
                         }
                     } else {
                         try {
-                            int xpAmount = Integer.parseInt(value.trim());
+                            int xpAmount = Integer.parseInt(rawValue);
                             ExperienceOrb orb = deathLoc.getWorld().spawn(deathLoc, ExperienceOrb.class);
                             orb.setExperience(xpAmount);
                         } catch (NumberFormatException e) {
@@ -239,7 +276,6 @@ public class MobListener implements Listener {
             display.remove();
         }
     }
-
 
     @EventHandler
     public void onEntityPortal(EntityPortalEvent event) {
