@@ -1,0 +1,15 @@
+main: us.magmamc.magmadungeons.Main
+name: MagmaDungeons
+version: 1.0.0
+api-version: 1.21
+description: Sistema avanzado de dungeons con presets personalizables.
+author: TuNombreAquí
+depend: [NBTAPI]
+
+commands:
+  magmadungeons:
+    description: Comando principal para gestionar las Dungeons.
+    aliases: [md]
+    usage: /<command> help
+    permission: magmadungeons.admin
+    permission-message: No tienes permiso para usar este comando.

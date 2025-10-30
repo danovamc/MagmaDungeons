@@ -1,0 +1,43 @@
+mob_type: WITHER_SKELETON
+
+name: '&6&lGuardian Oscuro &7(Nivel 1)'
+
+base_health: 120.0
+damage_modifier: 20.0
+max_mobs: 3
+
+block_blacklist:
+  - WATER
+  - LAVA
+  - MAGMA_BLOCK
+
+equipment:
+  head: PLAYER_HEAD;;
+  chest: DIAMOND_CHESTPLATE;;PROTECTION_ENVIRONMENTAL:4
+  legs: DIAMOND_LEGGINGS;;PROTECTION_ENVIRONMENTAL:4
+  feet: IRON_BOOTS;;PROTECTION_FALL:2
+  hand: IRON_AXE;;DAMAGE_ALL:3,DURABILITY:1
+  off_hand: IRON_AXE;;DAMAGE_ALL:3,DURABILITY:1
+
+effects:
+  # Nivel 1 = Amplificador 0 (Nivel I)
+  # Nivel 2 = Amplificador 1 (Nivel II)
+  - effect: "SPEED"
+    level: 2 # (Esto será Nivel II)
+    duration: "infinite" # Usa "infinite" o un número muy grande de ticks
+
+  - effect: "FIRE_RESISTANCE"
+    level: 1 # (Esto será Nivel I)
+    duration: 999999 # Ticks
+
+rewards:
+  commands:
+    - eco give %player% 500 100%
+    - crate give %player% mythic_key 1 15%
+  items:
+    - DIAMOND 1 20%
+    - EMERALD 3 50%
+    - IRON_INGOT 5
+  xp:
+    - 5L 10%
+    - 100 70%
