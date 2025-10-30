@@ -65,11 +65,20 @@ public class PresetManager {
                     preset.setBaseHealth(config.getDouble("base_health", (double)20.0F));
                     preset.setDamageModifier(config.getDouble("damage_modifier", (double)1.0F));
                     preset.setMaxMobsInRange(config.getInt("max_mobs", 5));
+
+                    // Lógica para Block Blacklist
                     List<String> rawBlacklist = config.getStringList("block_blacklist");
                     List<String> formattedBlacklist = (List)rawBlacklist.stream().map(String::toUpperCase).collect(Collectors.toList());
                     preset.setBlockBlacklist(formattedBlacklist);
+
+                    // >>> LÓGICA CORREGIDA Y ÚNICA para SPAWN_ACTIONS
+                    List<String> rawSpawnActions = config.getStringList("spawn_actions");
+                    preset.setSpawnActions(rawSpawnActions != null ? rawSpawnActions : Collections.emptyList());
+                    // <<<
+
                     Map<DungeonPreset.EquipmentSlot, DungeonPreset.ItemData> equipmentMap = this.loadEquipment(config.getConfigurationSection("equipment"), id);
                     preset.setEquipment(equipmentMap);
+
                     ConfigurationSection rewardsSection = config.getConfigurationSection("rewards");
                     if (rewardsSection != null) {
                         preset.setCommandRewards(this.loadRewardList(rewardsSection.getStringList("commands")));

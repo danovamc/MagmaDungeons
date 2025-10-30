@@ -8,6 +8,7 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.Color;
 
 import us.magmamc.magmadungeons.Main;
 import us.magmamc.magmadungeons.managers.DungeonManager;
@@ -23,6 +24,9 @@ import java.util.UUID;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.bukkit.potion.PotionEffect;
+
+import org.bukkit.Sound;
+import org.bukkit.Particle;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -122,6 +126,9 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
         applyEquipment(mob, preset);
         applyEffects(mob, preset);
 
+        // LLAMADA A LAS ACCIONES DE SPAWNEO: se añade 0.5 a X, Y, Z para centrar los efectos en el bloque
+        executeSpawnActions(spawnLoc.clone().add(0.5, 0.5, 0.5), preset);
+
         TextDisplay healthDisplay = createHealthDisplay(mob, preset);
 
         mob.addPassenger(healthDisplay);
@@ -203,24 +210,15 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
 
         double maxHealth = mob.getAttribute(Attribute.valueOf("GENERIC_MAX_HEALTH")).getBaseValue();
 
-        // **MODIFICACIONES PARA MINI-MESSAGE Y FIX DE ITÁLICA**
         MiniMessage mm = plugin.getMiniMessage();
 
-        // preset.getName() es la cadena raw MiniMessage del nombre (por ej: "&6&lGuardian Oscuro &7(Nivel 1)")
         String nameLineRaw = preset.getName();
-
-        // La línea de vida usa tags MiniMessage y el fix de itálica <!i>
         String healthLineRaw = "<red>" + (int)maxHealth + "<gray> / " + (int)maxHealth + "<red>❤<!i>";
-
-        // Deserializar ambas líneas, añadiendo <!i> al nombre del mob para consistencia
         Component nameComponent = mm.deserialize(nameLineRaw + "<!i>");
         Component healthComponent = mm.deserialize(healthLineRaw);
-
-        // Combinar componentes con un salto de línea
         Component combinedText = nameComponent.append(Component.newline()).append(healthComponent);
 
         healthDisplay.text(combinedText);
-        // **FIN DE MODIFICACIONES**
 
         healthDisplay.setMetadata("DungeonDisplay", new FixedMetadataValue(plugin, mob.getUniqueId().toString()));
 
@@ -234,6 +232,19 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
 
         Location min = dungeon.getMin();
         Location max = dungeon.getMax();
+
+        // 1. Definir las restricciones de altura deseadas.
+        final double SPAWN_Y_MIN = 123.0;
+        final double SPAWN_Y_MAX = 135.0;
+
+        // 2. Calcular el rango efectivo de spawneo (la intersección de su región y la restricción).
+        double effectiveMaxY = Math.min(max.getY(), SPAWN_Y_MAX);
+        double effectiveMinY = Math.max(min.getY(), SPAWN_Y_MIN);
+
+        // Si no hay superposición, no se puede spawnear.
+        if (effectiveMaxY < effectiveMinY) {
+            return null;
+        }
 
         List<Player> playersInDungeon = dungeon.getWorld().getPlayers().stream()
                 .filter(p -> dungeon.isLocationInside(p.getLocation()))
@@ -260,9 +271,11 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
                 continue;
             }
 
-            Location searchLoc = new Location(dungeon.getWorld(), x, max.getY(), z);
+            // 3. La búsqueda vertical comienza desde el máximo Y efectivo.
+            Location searchLoc = new Location(dungeon.getWorld(), x, effectiveMaxY, z);
 
-            while (searchLoc.getBlockY() >= min.getY()) {
+            // 4. La búsqueda vertical se detiene en el mínimo Y efectivo.
+            while (searchLoc.getBlockY() >= effectiveMinY) {
 
                 org.bukkit.block.Block currentBlock = searchLoc.getBlock();
                 org.bukkit.block.Block blockBelow = searchLoc.clone().subtract(0, 1, 0).getBlock();
@@ -283,5 +296,109 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
         }
 
         return null;
+    }
+
+    private void executeSpawnActions(Location loc, DungeonPreset preset) {
+        for (String action : preset.getSpawnActions()) {
+            if (action == null || action.isEmpty()) continue;
+
+            String[] parts = action.trim().split(";");
+
+            if (parts.length == 0) continue;
+            String actionType = parts[0].toUpperCase();
+
+            try {
+                switch (actionType) {
+                    case "[SOUND]":
+                        // Formato esperado: [SOUND];SOUND_NAME;VOLUME;PITCH
+                        if (parts.length >= 2) {
+                            String soundName = parts[1];
+
+                            float volume = 1.0f;
+                            if (parts.length > 2 && !parts[2].isEmpty()) {
+                                volume = Float.parseFloat(parts[2].trim());
+                            }
+
+                            float pitch = 1.0f;
+                            if (parts.length > 3 && !parts[3].isEmpty()) {
+                                pitch = Float.parseFloat(parts[3].trim());
+                            }
+
+                            Sound sound = Sound.valueOf(soundName.toUpperCase());
+                            loc.getWorld().playSound(loc, sound, volume, pitch);
+                        }
+                        break;
+
+                    case "[PARTICLE]":
+                        // Formato: [PARTICLE];PARTICLE_NAME;COUNT;OFFSET_X,OFFSET_Y,OFFSET_Z;SPEED
+                        if (parts.length >= 3) {
+                            String particleName = parts[1];
+                            int count = Integer.parseInt(parts[2].trim());
+
+                            Particle particle = Particle.valueOf(particleName.toUpperCase());
+
+                            double offsetX = 0.0;
+                            double offsetY = 0.0;
+                            double offsetZ = 0.0;
+                            double speed = 0.0;
+
+                            if (parts.length > 3 && !parts[3].isEmpty()) {
+                                String[] offsetParts = parts[3].split(",");
+                                if (offsetParts.length == 3) {
+                                    offsetX = Double.parseDouble(offsetParts[0].trim());
+                                    offsetY = Double.parseDouble(offsetParts[1].trim());
+                                    offsetZ = Double.parseDouble(offsetParts[2].trim());
+                                }
+                            }
+
+                            if (parts.length > 4 && !parts[4].isEmpty()) {
+                                speed = Double.parseDouble(parts[4].trim());
+                            }
+
+                            // >>> LÓGICA CORREGIDA PARA PARTÍCULAS DE COLOR (DUST) <<<
+                            if (particle == Particle.DUST) {
+
+                                // Corrección 1: Usar Color.fromRGB.
+                                // Corrección 2: Se usa DUST, por lo que los offsets son R, G, B y speed es el tamaño.
+                                Color color = Color.fromRGB(
+                                        (int) (offsetX * 255.0),
+                                        (int) (offsetY * 255.0),
+                                        (int) (offsetZ * 255.0)
+                                );
+
+                                float size = (float) speed;
+                                if (size < 0.01f) size = 0.01f;
+
+                                Particle.DustOptions dustOptions = new Particle.DustOptions(color, size);
+
+                                loc.getWorld().spawnParticle(
+                                        particle,
+                                        loc.getX(), loc.getY(), loc.getZ(),
+                                        count,
+                                        dustOptions
+                                );
+
+                            } else {
+                                // Para partículas normales (CRIT, EXPLOSION, etc.)
+                                loc.getWorld().spawnParticle(
+                                        particle,
+                                        loc.getX(), loc.getY(), loc.getZ(),
+                                        count,
+                                        offsetX, offsetY, offsetZ,
+                                        speed
+                                );
+                            }
+                            // >>> FIN LÓGICA CORREGIDA <<<
+                        }
+                        break;
+
+                    case "[LIGHTNING]":
+                        loc.getWorld().strikeLightningEffect(loc);
+                        break;
+                }
+            } catch (IllegalArgumentException e) {
+                plugin.getLogger().warning("Preset " + preset.getId() + ": Error al ejecutar la acción '" + action + "'. Revisa el formato de sonido/partícula/número. Mensaje: " + e.getMessage());
+            }
+        }
     }
 }

@@ -22,6 +22,7 @@ public class DungeonPreset {
     private List<RewardData> itemRewards = new ArrayList();
     private List<RewardData> xpRewards = new ArrayList();
     private List<EffectData> effects = new ArrayList();
+    private List<String> spawnActions = new ArrayList();
 
     public DungeonPreset(String id) {
         this.id = id;
@@ -73,6 +74,14 @@ public class DungeonPreset {
 
     public List<EffectData> getEffects() {
         return Collections.unmodifiableList(this.effects);
+    }
+
+    public List<String> getSpawnActions() {
+        return Collections.unmodifiableList(this.spawnActions);
+    }
+
+    public void setSpawnActions(List<String> spawnActions) {
+        this.spawnActions = spawnActions;
     }
 
     public void setMobType(EntityType mobType) {
