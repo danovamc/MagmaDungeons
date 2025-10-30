@@ -1,7 +1,6 @@
 package us.magmamc.magmadungeons.listeners;
 
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.attribute.Attribute;
@@ -22,6 +21,8 @@ import us.magmamc.magmadungeons.models.DungeonPreset;
 import org.bukkit.NamespacedKey;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 
 import java.util.List;
 import java.util.Random;
@@ -32,6 +33,7 @@ public class MobListener implements Listener {
     private final DungeonManager dungeonManager;
     private final Main plugin = Main.getInstance();
     private final Random random = new Random();
+    private final MiniMessage mm = Main.getInstance().getMiniMessage();
 
     public MobListener(DungeonManager dungeonManager) {
         this.dungeonManager = dungeonManager;
@@ -73,16 +75,22 @@ public class MobListener implements Listener {
                 double currentHealth = Math.max(0, livingMob.getHealth());
 
                 Attribute maxHealthAttribute = Attribute.valueOf("GENERIC_MAX_HEALTH");
-                double maxHealth = livingMob.getAttribute(maxHealthAttribute).getBaseValue();
+                double maxHealth = livingMob.getAttribute(maxHealthAttribute) != null
+                        ? livingMob.getAttribute(maxHealthAttribute).getBaseValue()
+                        : livingMob.getMaxHealth();
 
-                String nameLine = preset.getName();
-                String healthLine = ChatColor.RED.toString() + (int)Math.round(currentHealth) +
-                        ChatColor.GRAY + " / " +
-                        (int)Math.round(maxHealth) + ChatColor.RED + "❤";
+                // MODIFICACIÓN: Uso de MiniMessage
+                String nameLineRaw = preset.getName();
+                String healthLineRaw = "<!i><red>" + (int)Math.round(currentHealth) +
+                        "<gray> / " +
+                        (int)Math.round(maxHealth) + "<red>❤";
 
-                String newText = nameLine + "\n" + healthLine;
-                if (!display.getText().equals(newText)) {
-                    display.setText(newText);
+                Component nameComponent = mm.deserialize(nameLineRaw + "<!i>");
+                Component healthComponent = mm.deserialize(healthLineRaw);
+                Component newTextComponent = nameComponent.append(Component.newline()).append(healthComponent);
+
+                if (!display.text().equals(newTextComponent)) {
+                    display.text(newTextComponent);
                 }
             }
 
@@ -133,7 +141,8 @@ public class MobListener implements Listener {
         DungeonPreset preset = getPresetFromMob(mob);
         if (preset == null) return;
 
-        String nameLine = preset.getName();
+        // MODIFICACIÓN: Uso de MiniMessage
+        String nameLineRaw = preset.getName();
         double damage = event.getFinalDamage();
         double currentHealth = mob.getHealth();
 
@@ -144,15 +153,21 @@ public class MobListener implements Listener {
 
         double newHealth = Math.max(0, currentHealth - damage);
 
-        String healthLine = ChatColor.RED.toString() + (int) Math.round(newHealth) +
-                ChatColor.GRAY + " / " +
-                (int) Math.round(maxHealth) + ChatColor.RED + "❤";
+        String healthLineRaw = "<!i><red>" + (int) Math.round(newHealth) +
+                "<!i><gray> / " +
+                (int) Math.round(maxHealth) + "<!i><red>❤";
 
-        display.setText(nameLine + "\n" + healthLine);
+        Component nameComponent = mm.deserialize(nameLineRaw + "<!i>");
+        Component healthComponent = mm.deserialize(healthLineRaw);
+        Component damagedText = nameComponent.append(Component.newline()).append(healthComponent);
+
+        display.text(damagedText);
 
         if (newHealth <= 0) {
-            String deathHealth = ChatColor.DARK_RED.toString() + "0" + ChatColor.GRAY + " / " + (int) Math.round(maxHealth) + ChatColor.RED + "❤";
-            display.setText(nameLine + "\n" + deathHealth);
+            String deathHealthRaw = "<dark_red>0<gray> / " + (int) Math.round(maxHealth) + "<red>❤<!i>";
+            Component deathHealthComponent = mm.deserialize(deathHealthRaw);
+            Component deathText = nameComponent.append(Component.newline()).append(deathHealthComponent);
+            display.text(deathText);
         }
     }
 

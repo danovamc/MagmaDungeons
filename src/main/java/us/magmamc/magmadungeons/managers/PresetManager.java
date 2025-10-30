@@ -10,7 +10,6 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -59,7 +58,10 @@ public class PresetManager {
                 try {
                     preset.setMobType(EntityType.valueOf(config.getString("mob_type", "ZOMBIE").toUpperCase()));
                     String rawName = config.getString("name", "Mob de Dungeon");
-                    preset.setName(ChatColor.translateAlternateColorCodes('&', rawName));
+
+                    // MODIFICACIÓN: Se almacena el nombre raw de MiniMessage
+                    preset.setName(rawName);
+
                     preset.setBaseHealth(config.getDouble("base_health", (double)20.0F));
                     preset.setDamageModifier(config.getDouble("damage_modifier", (double)1.0F));
                     preset.setMaxMobsInRange(config.getInt("max_mobs", 5));

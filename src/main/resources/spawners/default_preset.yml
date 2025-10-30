@@ -1,6 +1,6 @@
 mob_type: WITHER_SKELETON
 
-name: '&6&lGuardian Oscuro &7(Nivel 1)'
+name: '<gold><bold>Guardian Oscuro <gray>(Nivel 1)'
 
 base_health: 120.0
 damage_modifier: 20.0

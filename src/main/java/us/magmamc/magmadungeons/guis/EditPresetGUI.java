@@ -8,8 +8,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -32,12 +33,13 @@ public class EditPresetGUI implements Listener {
     private final Main plugin;
     private final DungeonManager dungeonManager;
     private final Map<Inventory, String> activeInventories = new HashMap();
+    private final MiniMessage mm = Main.getInstance().getMiniMessage();
     private static final int HEAD_SLOT = 1;
     private static final int CHEST_SLOT = 10;
     private static final int LEGS_SLOT = 19;
     private static final int FEET_SLOT = 28;
-    private static final int HAND_SLOT = 4;
-    private static final int OFF_HAND_SLOT = 13;
+    private static final int HAND_SLOT = 13;
+    private static final int OFF_HAND_SLOT = 22;
     private static final int SAVE_SLOT = 49;
 
     public EditPresetGUI(Main plugin, DungeonManager dungeonManager) {
@@ -46,17 +48,30 @@ public class EditPresetGUI implements Listener {
     }
 
     private Inventory createInventory(String presetId) {
-        String var10002 = String.valueOf(ChatColor.DARK_GRAY);
-        Inventory inventory = Bukkit.createInventory((InventoryHolder)null, 54, var10002 + "Editando Preset: " + presetId);
         DungeonPreset preset = this.dungeonManager.getPresetManager().getPreset(presetId);
-        ItemStack filler = this.createItem(Material.GRAY_STAINED_GLASS_PANE, " ");
+
+        // MODIFICACIÓN: Título de inventario con MiniMessage y fix de itálica
+        Component title = this.mm.deserialize("<!i><dark_gray><u>Editando:</u> " + presetId);
+        Inventory inventory = Bukkit.createInventory((InventoryHolder)null, 54, title);
+
+        // MODIFICACIÓN: Ítem de relleno con MiniMessage
+        ItemStack filler = this.createItem(Material.GRAY_STAINED_GLASS_PANE, " ", new String[]{});
 
         for(int i = 0; i < inventory.getSize(); ++i) {
             inventory.setItem(i, filler);
         }
 
         this.loadEquipment(preset, inventory);
-        ItemStack saveButton = this.createItem(Material.EMERALD, String.valueOf(ChatColor.GREEN) + String.valueOf(ChatColor.BOLD) + "GUARDAR CAMBIOS", String.valueOf(ChatColor.GRAY) + "Haz clic para guardar el equipo.", String.valueOf(ChatColor.GRAY) + "Los cambios se aplicarán al instante.");
+
+        // MODIFICACIÓN: Botón de guardar con MiniMessage
+        ItemStack saveButton = this.createItem(
+                Material.EMERALD,
+                "<!i><green><bold>GUARDAR CAMBIOS",
+                new String[]{
+                        "<!i><gray>Haz clic para guardar el equipo.",
+                        "<!i><gray>Los cambios se aplicarán al instante."
+                }
+        );
         inventory.setItem(49, saveButton);
         return inventory;
     }
@@ -125,7 +140,7 @@ public class EditPresetGUI implements Listener {
     }
 
     private boolean isEquipmentSlot(int slot) {
-        List<Integer> slots = Arrays.asList(1, 10, 19, 28, 4, 13);
+        List<Integer> slots = Arrays.asList(1, 10, 19, 28, 13, 22);
         return slots.contains(slot);
     }
 
@@ -136,8 +151,8 @@ public class EditPresetGUI implements Listener {
             case CHEST -> var10000 = 10;
             case LEGS -> var10000 = 19;
             case FEET -> var10000 = 28;
-            case HAND -> var10000 = 4;
-            case OFF_HAND -> var10000 = 13;
+            case HAND -> var10000 = 13;
+            case OFF_HAND -> var10000 = 22;
             default -> throw new MatchException((String)null, (Throwable)null);
         }
 
@@ -148,23 +163,25 @@ public class EditPresetGUI implements Listener {
         File presetFile = new File(String.valueOf(this.plugin.getDataFolder()) + "/spawners", presetId + ".yml");
         FileConfiguration config = YamlConfiguration.loadConfiguration(presetFile);
         if (config == null) {
-            player.sendMessage(String.valueOf(ChatColor.RED) + "Error: No se pudo cargar el archivo del preset.");
+            // MODIFICACIÓN: Uso de MiniMessage
+            Main.getInstance().getAudiences().player(player).sendMessage(this.mm.deserialize("<red>Error: No se pudo cargar el archivo del preset."));
         } else {
             this.saveItemToConfig(inventory.getItem(1), config, "equipment.head");
             this.saveItemToConfig(inventory.getItem(10), config, "equipment.chest");
             this.saveItemToConfig(inventory.getItem(19), config, "equipment.legs");
             this.saveItemToConfig(inventory.getItem(28), config, "equipment.feet");
-            this.saveItemToConfig(inventory.getItem(4), config, "equipment.hand");
-            this.saveItemToConfig(inventory.getItem(13), config, "equipment.off_hand");
+            this.saveItemToConfig(inventory.getItem(13), config, "equipment.hand");
+            this.saveItemToConfig(inventory.getItem(22), config, "equipment.off_hand");
 
             try {
                 config.save(presetFile);
                 this.dungeonManager.getPresetManager().loadPresets();
-                String var10001 = String.valueOf(ChatColor.GREEN);
-                player.sendMessage(var10001 + "Equipo del preset '" + presetId + "' guardado y actualizado.");
+                // MODIFICACIÓN: Uso de MiniMessage
+                Main.getInstance().getAudiences().player(player).sendMessage(this.mm.deserialize("<green>Equipo del preset '<aqua>" + presetId + "</aqua>' guardado y actualizado."));
             } catch (IOException e) {
                 this.plugin.getLogger().log(Level.SEVERE, "No se pudo guardar el preset: " + presetId, e);
-                player.sendMessage(String.valueOf(ChatColor.RED) + "Error al guardar el preset. Revisa la consola.");
+                // MODIFICACIÓN: Uso de MiniMessage
+                Main.getInstance().getAudiences().player(player).sendMessage(this.mm.deserialize("<red>Error al guardar el preset. Revisa la consola."));
             }
 
         }
@@ -204,8 +221,16 @@ public class EditPresetGUI implements Listener {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(name);
-            meta.setLore(Arrays.asList(lore));
+            // MODIFICACIÓN: Usar MiniMessage para el nombre.
+            meta.displayName(this.mm.deserialize(name));
+
+            // MODIFICACIÓN: Usar MiniMessage para cada línea de lore.
+            List<Component> loreComponents = Arrays.stream(lore)
+                    .map(this.mm::deserialize)
+                    .collect(Collectors.toList());
+
+            meta.lore(loreComponents);
+
             item.setItemMeta(meta);
         }
 

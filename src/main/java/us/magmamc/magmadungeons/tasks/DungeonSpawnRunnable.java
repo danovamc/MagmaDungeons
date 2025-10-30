@@ -12,10 +12,9 @@ import org.bukkit.scheduler.BukkitRunnable;
 import us.magmamc.magmadungeons.Main;
 import us.magmamc.magmadungeons.managers.DungeonManager;
 import us.magmamc.magmadungeons.models.DungeonInstance;
-import us.magmamc.magmadungeons.models.DungeonPreset; // <-- ¡Línea corregida!
+import us.magmamc.magmadungeons.models.DungeonPreset;
 import org.bukkit.Material;
 import us.magmamc.magmadungeons.utils.NBTUtils;
-import org.bukkit.ChatColor;
 import org.bukkit.entity.TextDisplay;
 import org.bukkit.entity.Display;
 import java.util.List;
@@ -24,6 +23,9 @@ import java.util.UUID;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.bukkit.potion.PotionEffect;
+
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 
 public class DungeonSpawnRunnable extends BukkitRunnable {
 
@@ -201,10 +203,24 @@ public class DungeonSpawnRunnable extends BukkitRunnable {
 
         double maxHealth = mob.getAttribute(Attribute.valueOf("GENERIC_MAX_HEALTH")).getBaseValue();
 
-        String nameLine = preset.getName();
-        String healthLine = ChatColor.RED.toString() + (int)maxHealth + ChatColor.GRAY + " / " + (int)maxHealth + ChatColor.RED + "❤";
+        // **MODIFICACIONES PARA MINI-MESSAGE Y FIX DE ITÁLICA**
+        MiniMessage mm = plugin.getMiniMessage();
 
-        healthDisplay.setText(nameLine + "\n" + healthLine);
+        // preset.getName() es la cadena raw MiniMessage del nombre (por ej: "&6&lGuardian Oscuro &7(Nivel 1)")
+        String nameLineRaw = preset.getName();
+
+        // La línea de vida usa tags MiniMessage y el fix de itálica <!i>
+        String healthLineRaw = "<red>" + (int)maxHealth + "<gray> / " + (int)maxHealth + "<red>❤<!i>";
+
+        // Deserializar ambas líneas, añadiendo <!i> al nombre del mob para consistencia
+        Component nameComponent = mm.deserialize(nameLineRaw + "<!i>");
+        Component healthComponent = mm.deserialize(healthLineRaw);
+
+        // Combinar componentes con un salto de línea
+        Component combinedText = nameComponent.append(Component.newline()).append(healthComponent);
+
+        healthDisplay.text(combinedText);
+        // **FIN DE MODIFICACIONES**
 
         healthDisplay.setMetadata("DungeonDisplay", new FixedMetadataValue(plugin, mob.getUniqueId().toString()));
 

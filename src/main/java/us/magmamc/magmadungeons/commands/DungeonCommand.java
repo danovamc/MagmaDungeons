@@ -78,7 +78,8 @@ public class DungeonCommand implements CommandExecutor, TabCompleter {
             String targetId = args[1];
             if (this.dungeonManager.removeDungeon(targetId)) {
                 this.dungeonManager.loadDungeons();
-                this.sendMessage(player, "<green>Dungeon con ID <aqua>" + targetId.substring(0, 8) + "<green> eliminada y limpiada correctamente.");
+                // MODIFICACIÓN: Uso completo de MiniMessage
+                this.sendMessage(player, "<green>Dungeon con ID <aqua>" + targetId.substring(0, 8) + "</aqua><green> eliminada y limpiada correctamente.");
             } else {
                 this.sendError(player, "No se encontró ninguna dungeon activa con esa ID parcial.");
             }
@@ -98,15 +99,21 @@ public class DungeonCommand implements CommandExecutor, TabCompleter {
                 ItemMeta meta = setupAxe.getItemMeta();
                 String mobTypeString = this.dungeonManager.getPresetManager().getPreset(presetId).getMobType().name();
                 if (meta != null) {
-                    meta.displayName(this.mm.deserialize("<aqua><bold>Herramienta de Selección de Dungeon"));
-                    meta.lore(Arrays.asList(this.mm.deserialize("<gray>Modo: <yellow>" + mobTypeString), this.mm.deserialize("<gray>Preset: <yellow>" + presetId), Component.empty(), this.mm.deserialize("<green>Clic Izquierdo: Punto 1"), this.mm.deserialize("<green>Clic Derecho: Punto 2 (Finalizar)")));
+                    meta.displayName(this.mm.deserialize("<!i><aqua><bold>Herramienta de Selección de Dungeon"));
+                    meta.lore(Arrays.asList(
+                            this.mm.deserialize("<!i><gray>Modo: <yellow>" + mobTypeString),
+                            this.mm.deserialize("<!i><gray>Preset: <yellow>" + presetId),
+                            Component.empty(),
+                            this.mm.deserialize("<!i><green>Clic Izquierdo: Punto 1"),
+                            this.mm.deserialize("<!i><green>Clic Derecho: Punto 2 (Finalizar)")
+                    ));
                     setupAxe.setItemMeta(meta);
                 }
 
                 this.dungeonManager.startSetupMode(player, mobTypeString, presetId);
                 player.getInventory().addItem(new ItemStack[]{setupAxe});
                 this.sendMessage(player, "¡Has iniciado el modo de configuración!");
-                this.sendMessage(player, "Se te ha dado la <aqua>Herramienta de Selección de Dungeon<yellow>.");
+                this.sendMessage(player, "Se te ha dado la <aqua>Herramienta de Selección de Dungeon</aqua><yellow>.");
                 this.sendMessage(player, "Selecciona la primera esquina con un clic izquierdo.");
             }
         }
@@ -121,7 +128,8 @@ public class DungeonCommand implements CommandExecutor, TabCompleter {
                 this.sendError(player, "El preset '" + presetId + "' no existe.");
             } else {
                 Main.getInstance().getEditPresetGUI().open(player, presetId);
-                this.sendMessage(player, "Abriendo editor de equipo para preset: " + presetId);
+                // MODIFICACIÓN: Uso completo de MiniMessage
+                this.sendMessage(player, "Abriendo editor de equipo para preset: <aqua>" + presetId + "</aqua>");
             }
         }
     }
@@ -133,7 +141,8 @@ public class DungeonCommand implements CommandExecutor, TabCompleter {
             String target = args[1];
             int cleanedCount = this.dungeonManager.cleanMobs(target);
             if (cleanedCount > 0) {
-                this.sendMessage(player, "<green>Limpiados " + cleanedCount + " mobs de Dungeon" + (target.equalsIgnoreCase("ALL") ? " en todas las zonas." : " en la zona: " + target + "."));
+                // MODIFICACIÓN: Uso completo de MiniMessage
+                this.sendMessage(player, "<green>Limpiados " + cleanedCount + " mobs de Dungeon" + (target.equalsIgnoreCase("ALL") ? " en todas las zonas." : " en la zona: <aqua>" + target + "</aqua>."));
             } else if (target.equalsIgnoreCase("ALL")) {
                 this.sendMessage(player, "No se encontraron mobs de Dungeon para limpiar.");
             } else {
